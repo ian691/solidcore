@@ -10538,3 +10538,14 @@ with maximum relative error 0.
   `sm_GetEllipseTrimIntervals` through `IntersectWithCone`, which has no such guard yet.
   Reproduced with main's unpatched `cone/p2.rs` too. Tracked in issue #276; the
   `surface.cone_p2` refusals that are now stricter than needed are issue #277.
+
+
+### 2026-10-20 audit #294: topology.face_p2
+
+Face evaluations whose analytic geometry was imported only as a B-spline part were counted as parity passes because both runners returned inexact_geometry. The Rust runner now records the exact-import harness gap as a deferral. Exact Plane and B-spline evaluation still compares real values.
+
+Exactly 336 cases change from matched-error passes with zero comparisons to deferrals. All other case records and the 1,852 cases with substantive comparisons remain unchanged. This corrects reporting; it does not implement analytic import. The self-unit blocker explicitly names this runner's harness import gap. A future PR #215 baseline must re-certify this intentional correction; its regression gate should not be weakened.
+
+Validation: native targeted parity and serial native regressions were rerun after incorporating upstream `bb137d7d`. Original optimized before/after evidence used upstream `7dd82727`; latest-base checks use difftest profile with opt-level 0. The pinned C++ reference remains `c9c5979`. Independent GPT-6 Astra review approved the code and named-case transition evidence. Linux full-suite CI remains required before merge.
+
+Local full-suite limitation: `difftest --green` aborts with exit 134 after `nlib.math`; the untouched `7dd82727` baseline binary independently aborts with exit 134 for the next unit, `topology.database_io`. The macOS crash report places the stack-protector abort in SmDatabaseIO::ReadType, consistent with the already-recorded UB-5 in plan/upstream-issues.md. The exact triggering case is not isolated here. This is not a full-suite pass.
