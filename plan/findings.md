@@ -10538,3 +10538,14 @@ with maximum relative error 0.
   `sm_GetEllipseTrimIntervals` through `IntersectWithCone`, which has no such guard yet.
   Reproduced with main's unpatched `cone/p2.rs` too. Tracked in issue #276; the
   `surface.cone_p2` refusals that are now stricter than needed are issue #277.
+
+
+### 2026-10-20 audit #294: blend.fillet_corner_p3
+
+The corner runner attributed missing Cone/Cylinder SurfaceKind dispatch to surface.cone_p1, which is already green. Attribute those deferrals to surface.surface_p2, where generic Surface dispatch belongs.
+
+Exactly 11 deferred records change their blocker owner. Every case identity, outcome, comparison count and other field remains unchanged. This is the narrow attribution correction from issue #294 row 14; it does not implement dispatch or fix analogous labels elsewhere. Existing PRs #304/#306 touch other lines and remain separate.
+
+Validation: native targeted parity and serial native regressions were rerun after incorporating upstream `bb137d7d`. Original optimized before/after evidence used upstream `7dd82727`; latest-base checks use difftest profile with opt-level 0. The pinned C++ reference remains `c9c5979`. Independent GPT-6 Astra review approved the code and named-case transition evidence. Linux full-suite CI remains required before merge.
+
+Local full-suite limitation: `difftest --green` aborts with exit 134 after `nlib.math`; the untouched `7dd82727` baseline binary independently aborts with exit 134 for the next unit, `topology.database_io`. The macOS crash report places the stack-protector abort in SmDatabaseIO::ReadType, consistent with the already-recorded UB-5 in plan/upstream-issues.md. The exact triggering case is not isolated here. This is not a full-suite pass.
