@@ -55,12 +55,12 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Severity:** crash/UB (memory exhaustion, integer overflow).
 - **Rust port:** Checks each count against the bytes left (`DatabaseReader::ensure_available`) after upstream's own validation, and returns `InvalidInput`.
 
-#### UB-3. Polymorphic curve readers recurse without a depth limit [PSIRT]
-- **Location:** `SmCurve.cpp:23709` `SmCurve::ReadFromDB` dispatching to `SmProjectedCurve.cpp:690` `SmProjectedCurve::ReadFromDB` (and to the offset and iso curve readers), which read their base curve through `SmCurve::ReadFromDB` again.
+#### UB-3. Polymorphic curve and surface readers recurse without a depth limit [PSIRT]
+- **Location:** `SmCurve.cpp:23709` `SmCurve::ReadFromDB` dispatching to `SmProjectedCurve.cpp:690` `SmProjectedCurve::ReadFromDB` (and to the offset and iso curve readers, e.g. `SmOffsetCurve.cpp:567` `SmOffsetCurve::ReadFromDB`), which read their base curve through `SmCurve::ReadFromDB` again; likewise `SmSurface.cpp:34641` `SmSurface::ReadFromDB` and `SmOffsetSurface.cpp:2197` `SmOffsetSurface::ReadFromDB` for surfaces.
 - **What happens:** Each nesting level costs a few bytes of input and one stack frame chain, so a crafted file overflows the stack.
-- **Trigger:** A file of N nested projected-curve records with N large (thousands).
-- **How found:** read during porting (commit security review of `curve.projected_curve`).
-- **Confirmed:** no.
+- **Trigger:** A file of N nested projected-curve records with N large (thousands). Two concrete triggers (reader fuzz, 2026-10-20): `Fillet/eg1_srf2.smb` with its first 3D curve header preceded by 200000 copies of `Object Type 14036` / `Curve Dim 3` / `0 0 1` / `0.1` / `0 1` / `0` / `//base` (offset curves), or its surface header preceded by 200000 copies of `Object Type 15400` / `0.1` / `0` / `0` / `0` / `0` / `//base` (offset surfaces).
+- **How found:** read during porting (commit security review of `curve.projected_curve`); confirmed by the `.smb` reader fuzz (`crates/difftest/examples/reader_fuzz.rs`).
+- **Confirmed:** yes. `SmBrepData::ReadFromFile` (ASCII) on both 200000-level files segfaults (SIGSEGV, stack overflow) in the C++ reference build, with an 8 MiB stack; 200 levels read fine. The Rust port returns `InvalidInput` for both.
 - **Severity:** crash/UB (stack exhaustion).
 - **Rust port:** Limits nesting to 64 levels (`DatabaseReader::enter_nested`) and returns `InvalidInput` for deeper input.
 
@@ -205,11 +205,11 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 #### UB-13. `N_MakeKnotsCompatible` / `N_GetCompatibleKnotArrayMult` read past `U[m]`
 - **Location:** `NL_BasisBasic.cpp:3665` `N_MakeKnotsCompatible`, `NL_BasisAdv.cpp:119` `N_GetCompatibleKnotArrayMult`.
 - **What happens:** Both read past `U[m]` on several inputs. Their output buffers are caller-allocated and unbounded.
-- **Trigger:** Degree-0 vectors whose ends differ by less than `NL_PTOL`; inner knots within `NL_PTOL` of an end; unclamped vectors. For `N_GetCompatibleKnotArrayMult` also: degree 0 on vectors whose end knots repeat (`R[mr-1] == R[mr]` matched against `S[j]` advances both indices past the ends), an inner knot above the end knot, and an end knot replaced by a smaller value.
-- **How found:** read during porting; `N_GetCompatibleKnotArrayMult` also by `difftest --fuzz` (issue #182: 55 of 3000 fuzz cases, 501 of 30000, where the C++ ran on the shim's `+inf` padding and Rust reported the read).
-- **Confirmed:** no. For `N_GetCompatibleKnotArrayMult` the ffi now rejects exactly these inputs: the shim replays the routine's rescale (`N_BasisReparam` itself) and index walk and checks each index before the read (`sc_nlib_basis_adv_compat_mult_walk`), so upstream never runs on them. `N_MakeKnotsCompatible` still relies on the `+inf` padding.
+- **Trigger:** Degree-0 vectors whose ends differ by less than `NL_PTOL`; inner knots within `NL_PTOL` of an end; unclamped vectors. For `N_MakeKnotsCompatible` also: degree 0 on a vector whose end knots repeat (a degree-1 clamped vector passed with degree 0, or a duplicated end knot), an inner knot above the end knot (also after the rescale), and a vector with fewer than `p + 1` equal end knots. For `N_GetCompatibleKnotArrayMult` also: degree 0 on vectors whose end knots repeat (`R[mr-1] == R[mr]` matched against `S[j]` advances both indices past the ends), an inner knot above the end knot, and an end knot replaced by a smaller value.
+- **How found:** read during porting; `N_MakeKnotsCompatible` also by `difftest --fuzz` on `nlib.basis_basic` (17 of 3000 fuzz cases, 249 of 30000, where the C++ ran on the shim's `+inf` padding and Rust reported the read); `N_GetCompatibleKnotArrayMult` also by `difftest --fuzz` (issue #182: 55 of 3000 fuzz cases, 501 of 30000, same `+inf` padding).
+- **Confirmed:** no. The ffi now rejects exactly these inputs for both routines: the shim replays each routine's rescale (`N_BasisReparam` itself) and index walk and checks each index before the read, so upstream never runs on them. `N_GetCompatibleKnotArrayMult` is guarded by `sc_nlib_basis_adv_compat_mult_walk` and `N_MakeKnotsCompatible` by `sc_nlib_basis_basic_make_compatible_walk`; the `+inf` padding stays as a second line of defence.
 - **Severity:** crash/UB.
-- **Rust port:** Returns `InvalidInput` for the out-of-range reads. The `nlib.basis_adv` difftest compares this with the shim's walk check (`read_past_end` on both sides).
+- **Rust port:** Returns `InvalidInput` for the out-of-range reads. The `nlib.basis_adv` difftest compares this with the shim's walk check for `N_GetCompatibleKnotArrayMult`, and the `nlib.basis_basic` difftest for `N_MakeKnotsCompatible` (`read_past_end` on both sides; fixtures in `fixtures/nlib.basis_basic/fuzz_regressions.json`).
 
 #### UB-14. `NL_PascalTri[18][18]` is indexed past its end
 - **Location:** `source/SMLib/inc/NL_Globals.h:67` (the table); users include `NL_Bezier.cpp:105`, `:118` (elevation / product matrices) and `:5417` `N_BezCrvExtend` (hence `N_BezSrfExtend4D`).
@@ -1518,6 +1518,15 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Severity:** crash / out-of-range read.
 - **Rust port:** Kernel topology mutation remains deferred. Both the safe FFI validator and the C++ shim require equally sized partners for op 3 with fillets. Six `rejected_fillets_*` fixtures check rejection; 660 isolated probes independently exercise both guards at first and last indices of 1/2/3/32 intervals. Valid equal-sized pairs and non-fillet calls remain accepted.
 
+#### UB-180. `SmFace::GlobalLineIntersect` reads the first interval of an empty UV line classification
+- **Location:** `source/SMLib/src/SmFace.cpp:11769`, `SmFace::GlobalLineIntersect` (def. `:11692`).
+- **What happens:** For a range solution of the surface, `sm_FaceClassifyUVLine` classifies the UV line and, when it returns at most one interval, `sCC[0].m_vMid` is read without checking the size. An empty classification with `SM_SUCCESS` reads past the interval array.
+- **Trigger:** A line lying in the face's surface (a range solution) whose `sm_FaceClassifyUVLine` succeeds without intervals.
+- **How found:** read during porting (`topology.face_p4`).
+- **Confirmed:** no.
+- **Severity:** crash/UB (out-of-bounds read).
+- **Rust port:** Returns `InvalidInput` for an empty classification.
+
 #### UB-200. `SmApiCreateSphere` crashes for radii from about `7e9` and for a non-finite center
 - **Location:** `source/SM_API/src/SmApiPrimitives.cpp:335` `SmApiCreateSphere` -> `source/SMLib/src/SmPrimitiveCreation.cpp:894` `SmPrimitiveCreation::CreateSphere`. The API accepts any finite radius up to `SM_BIG_DOUBLE / 100` (`1e18`).
 - **What happens:** Segfault inside `CreateSphere`. A NaN or infinite center coordinate (not validated) also segfaults; `SmApiCreateTorus` (B-rep overload, no validation) segfaults on the same centers.
@@ -1729,11 +1738,11 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 #### HANG-9. `CreateExtendedSurface` with distance 0 never stops halving
 - **Location:** `SmBSplineSurfaceNLib.cpp:4469` `SmBSplineSurface::CreateExtendedSurface`; halving tests `if (dExtDist < dDist/100.0)` at `:4574`, `:4636`, `:4703`, `:4764`. It also runs for `SmPlane`.
 - **What happens:** After each failed extension the distance is halved until it drops below `dDist / 100`, which never happens for `dDist == 0` (or NaN).
-- **Trigger:** `CreateExtendedSurface` with a distance of `0`.
-- **How found:** read during porting.
-- **Confirmed:** no.
+- **Trigger:** `CreateExtendedSurface` with a distance of `0`. Also an infinite distance (`inf / 2` never drops below `inf / 100`): `SmBrep::MateLaminaEdgeToSurface` (`SmBrep.cpp:22248`) extends by `dMaxDist * dSurfaceExtensionFactor`, and `dMaxDist` (the largest `GlobalPointSolve` distance of 21 edge points, `:22216-22229`) is infinite once a point's squared distance to the mating surface overflows (a mating plane offset `1.4e154` from a `10 x 10` plane face or `surf_extrude.smb`; `1e154` returns), or the product overflows (`1e154 * 1e300`).
+- **How found:** read during porting; the infinite case by `topology.brep_p2`'s `difftest --fuzz 2000` (PR #149: three timeouts, mating plane origin `z = +-1e300`).
+- **Confirmed:** the infinite case yes, by bisecting the offset (C++ returns at `1e154` in 0.9 s and never at `1e160` .. `1e300`, killed after 30 s; no gdb on the pod). The Rust port on the same inputs, with `SmFace::Notify` stubbed out to reach the extension, stops in `create_extended_surface_dir` with `NotConverged` after 1100 halvings from `1.4e154` on, which places the loop here.
 - **Severity:** hang.
-- **Rust port:** Stops after 1100 halvings with `NotConverged`.
+- **Rust port:** Stops after 1100 halvings with `NotConverged`. The `topology.brep_p2` FFI refuses a `Mate` whose probed `dMaxDist * factor` is not finite.
 
 #### HANG-10. `SmCurve::GlobalCoincidenceChecker` recurses without a depth bound
 - **Location:** `SmCurve.cpp:19950`, `SmCurve::GlobalCoincidenceChecker`.
@@ -1789,6 +1798,24 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Confirmed:** yes (C++ 15.4 s, Rust 121.5 s for the one case).
 - **Severity:** hang (minutes per call; bounded by the minimum side ratio).
 - **Rust port:** Same bound (`MAX_SUBDIVISION_DEPTH` does not limit the node count). The generator uses scale `1e-3` instead of `1e-4`.
+
+#### HANG-18. `MateLaminaEdgeToSurface` with a negative extension factor never returns
+- **Location:** `NL_CrvAdv.cpp:640` `ST_curxcdr` (the G2 mirror-segment searches, `while( NL_YES )` at `:748` and `:839`), through `N_CrvExtendByDist` <- `ST_surxsdr` <- `N_SrfExtendByDist` <- `SmBSplineSurface::CreateExtendedSurface` <- `SmBrep::MateLaminaEdgeToSurface` (`SmBrep.cpp:22248`, `CreateExtendedSurface(ctx, dMaxDist*dSurfaceExtensionFactor, SM_CT_G1R, ..)`).
+- **What happens:** Nothing rejects a negative distance. With `ldst < 0` the parameter step `du = (U[m]-U[0])*(ldst/d1)` is negative, so the search walks the parameter off the knot range (only one side is clamped) and its exits compare arc lengths against the negative `ldst` (`fabs(ldst - dr) < ldst * 0.05` is never true). Distinct from the long positive extensions of the offset hang (swarm registry HANG-17), which split and recurse.
+- **Trigger:** `MateLaminaEdgeToSurface` with `dSurfaceExtensionFactor = -1` on a lamina edge whose points are off the mating surface: `Endcap.smb` edge 0, and edges 0 and 1 of a `10 x 10` plane face, mating plane `z = 0.5`, `dUVExtensionFactor = 10`, editing enabled. Factors `0`, `1.5` (the only upstream use) and `1e6` return normally.
+- **How found:** `topology.brep_p2` pre-review guard fuzz (PR #149).
+- **Confirmed:** yes (gdb backtrace inside `ST_curxcdr` <- `N_CrvExtendByDist` after 90 s; killed after 40 min in the sweep). The loop mechanism is from source inspection.
+- **Severity:** hang.
+- **Rust port:** `topology::brep::p2::mate_lamina_edge_to_surface` returns `InvalidInput` for a negative extension distance before `create_extended_surface`; the difftest FFI rejects a negative factor (`topology.brep_p2` runner test `mate_rejects_a_negative_extension_factor`).
+
+#### HANG-28. `SmVertexuse::GetVertexFaceGap` never returns for a curved face with a huge corner
+- **Location:** `SmVertexuse.cpp:1646` `SmVertexuse::GetVertexFaceGap` -> `CalcVertexFaceGap` (the vertex's drop onto the face surface).
+- **What happens:** the gap of a face vertex never finishes computing; the exact loop is not identified. The cost climbs steeply with the corner's magnitude: there is a slow band below the first cut-off (`2e156`) recorded here.
+- **Trigger:** `CreateFaceFromSurface` on a u-degree-2, v-degree-1 B-spline with three u spans (5 x 2 net, knots `0,0,0,.33,.66,1,1,1`) whose corner control point (a vertex position) has a large coordinate, then `GetVertexFaceGap` on its vertex uses (the shared topology fixture's `init_gaps`). Measured on the pod (30 s timeouts; u-degree 2 and 3, 3 and 6 spans, v-degree 1 and 2, last corner on x, y and z): up to `1.34e154` (about `sqrt(DBL_MAX)`) every shape returns within 0.09 s; from `1e155` the v-degree-1 shapes take 0.3-1.1 s; at `1e156` six do not return within 30 s (five on x or y, one on z), at `1.9e156` nine; `1.9e156` takes 103-114 s on z and does not return within 120 s on x (review of d12f88e9, `reviews/topology.brep_p2-d12f88e9.md`); `5e156` never returns. The v-degree-2 shapes measured stay fast at `1.9e156`. Weights (review of f3fe6094): the net is homogeneous (`w x, w y, w z, w`), so a rational corner's vertex is the stored value divided by `w`; a stored `1e154` with `w = 1e-3` (a vertex at `1e157`) does not return within 30 s, and a Cartesian `9.9e153` with `w = 10` (stored `9.9e154`) did not return on y. Below that, a rational corner with a large coordinate costs a bounded 0.6-3.9 s on x whatever its magnitude (`1e100` as `1e151`), under 0.1 s on y and z; the other control points' weights (`1e-3`, `1e3`) do not change this. The FFI bounds a rational corner at `1e151` on both the stored and the Cartesian coordinate. The same corner returns up to `1e300` on planes, degree-1 surfaces, single- and two-span biquadratic patches, and when the huge value is an interior control point.
+- **How found:** `topology.brep_p2`'s `difftest --fuzz 2000` (PR #149, case fuzz00497: control point `y = 1e300`, a `LocalCurveSector` op; plain queries on the same B-rep hang too).
+- **Confirmed:** yes, by C++ runs with 30-120 s timeouts and an `fprintf` trace inside the fixture build, which stops inside the third vertex use's `GetVertexFaceGap`. The pod cannot ptrace (`ptrace_scope` 2, no `CAP_SYS_PTRACE`), so gdb cannot attach and the inner loop is not pinned down (the reviewer suspects `ComputeUVPoint`'s drop, `SmVertexuse.cpp:1817`).
+- **Severity:** hang.
+- **Rust port:** the Rust side returns (no gap initialisation in the difftest import). The `topology.brep_p2` FFI refuses a degree >= 2 B-spline face with a corner control point coordinate above `1e154` (a rational corner above `1e151`, stored or Cartesian) when `init_gaps` is set (a margin below the slow band; the first bound, `2e156`, was inside it); this over-refuses the shapes that return (v-degree 2, single- and two-span patches).
 
 #### HANG-13. `SmApiCreateLinearSweep` of a full circle over a negative distance never returns
 - **Location:** `source/SM_API/src/SmApiBrep.cpp:1196` `SmApiCreateLinearSweep` (and `SmApiCreateLinearSweepWithRepetitions`, `:1685`) -> `source/SMLib/src/SmPrimitiveCreation.cpp:1795` `SmPrimitiveCreation::CreateLinearSweep` -> (one repetition) `:1150` `CreateLinearSweep`, which builds the analytic domain `SmExtent2d(0, 0, 1, dSweepDist)` without ordering it.
@@ -2236,6 +2263,24 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Cause:** `s2ndUVCurves.Add(pNewUVTrimCurve)` where `sUVCurves.Add(...)` was meant.
 - **Rust port:** Reproduces it (`topology::edgeuse::p3::create_uv_trim_curve` builds the joined curve into the discarded second-half array and reports the recovery path).
 
+#### WR-176. `SmFace::HasSeamProblem` returns TRUE whenever it has to compute the face properties
+- **Location:** `source/SMLib/src/SmFace.cpp:15650`, `SmFace::HasSeamProblem` (def. `:15540`).
+- **What happens:** When `pOptFaceProps` is NULL or below `SM_PROPSTAGE_2a`, the function runs `SetProps_Stage2`, copies its seam classifications and enums to the outputs, and returns `SM_SUCCESS` (`1000`) from a function returning `SmBoolean`. The result is always TRUE ("seam problem"), even for a face whose seams are fine and whose output enums say `SM_SP_NEITHER`.
+- **Trigger:** `HasSeamProblem` without face properties on a face of a periodic surface (e.g. faces of `TestFiles/pt_TestFiles/Mouse.smb`).
+- **How found:** generated difftest case (`topology.face_p4`: a port returning FALSE there disagreed with the C++).
+- **Confirmed:** yes.
+- **Severity:** wrong result.
+- **Rust port:** Returns `has_problem = true` there, as upstream.
+
+#### WR-177. `SmFace::FindVertexSector` evaluates an empty domain for poles after its first vertex use
+- **Location:** `source/SMLib/src/SmFace.cpp:9762`, `SmFace::FindVertexSector` (def. `:9408`; the pole points `:9788`-`:9803`).
+- **What happens:** In the 3D branch (an edge use without UV trim curve), `SmExtent2d sSurfDomain` is declared inside the loop over vertex uses, but the natural domain is stored in it only on the pass that first fetches the poles (`bCheckedPoles`). On later passes a vertex at a pole gets `sEU1UV` from a default (inside-out) extent, which is then passed to `SectorClassifyCurveOn` as the singular UV point.
+- **Trigger:** A vertex at a surface pole with two or more vertex uses on the face's upward face use, their edge uses without UV trim curves, and sector validation requested.
+- **How found:** read during porting (`topology.face_p4`).
+- **Confirmed:** no.
+- **Severity:** wrong result.
+- **Rust port:** Reproduces it (the domain is only set on the pass that fetches the poles).
+
 #### WR-167. `SmTArray::FindElementInMaskedArray` tests `1<ii` instead of `1<<ii`
 - **Location:** `source/SMLib/inc/SmTArray.h:1543`, `SmTArray<TYPE>::FindElementInMaskedArray` (def. `:1531`). Called by `sms_FindAndClassifyLoopBisector` (`SmFace.cpp:2588`) on `SmFaceProps::m_sPolePoints` with the `m_lPoles` side mask.
 - **What happens:** The mask test is `lBitMask & (1<ii)`, a comparison, not a shift: elements 0 and 1 are never searched, and elements 2 and up are searched exactly when bit 0 of the mask (`SM_SS_UMIN`) is set, whatever their own bits. The bisector therefore never recognises an edge mid point on the u-min or v-min pole, and tests the u-max and v-max poles only when the u-min side is singular.
@@ -2244,6 +2289,15 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Confirmed:** no (the bisector cases of the `query.face_p3` difftest defer before comparing a pole skip).
 - **Severity:** wrong result.
 - **Rust port:** Ported as is (`query::face::p3`, private `find_element_in_masked_array`).
+
+#### WR-197. `SmMerge::MergeAddedTopology`'s declared defaults shift into the wrong flags
+- **Location:** `source/SMLib/inc/SmMerge.h:357` (declaration) against `source/SMLib/src/SmMerge.cpp:5304` (definition), `SmMerge::MergeAddedTopology`.
+- **What happens:** The declaration puts `bDoGluing = TRUE` ninth, followed by `bMakingManifoldSolid = FALSE`, `bFastEdgeCompare = TRUE`, `bDoRegionNesting = TRUE`, `bIgnoreProblems = TRUE`. The definition takes the four flags ninth to twelfth and the unused gluing flag last. A call relying on the defaults therefore runs with making-manifold-solid `TRUE` and fast edge compare `FALSE`, the opposite of what the declaration documents.
+- **Trigger:** Any call that omits the trailing arguments. Both upstream callers (`MergeAddedFace`, `SmFeatureExecutive`) pass all four flags explicitly, so they are not affected.
+- **How found:** read during porting (`boolean.merge_p2`).
+- **Confirmed:** no (no upstream caller uses the defaults).
+- **Severity:** wrong result (latent).
+- **Rust port:** `MergeAddedOptions::default()` is what the declared defaults actually pass, `(TRUE, FALSE, TRUE, TRUE)`; `MERGE_ADDED_FACE_OPTIONS` is `MergeAddedFace`'s explicit `(FALSE, TRUE, TRUE, TRUE)`.
 
 ### NLib
 
@@ -3018,16 +3072,16 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **How found:** difftest fuzzing of `heal.stitch_p1` (PR #196): 4 crashes in 2000 programs; gdb backtrace `SmBrep::GetEdges <- SmBrep::GetMinEdgeBBoxSize <- SmMerge::SmMerge <- SmApiStitch`.
 - **Confirmed:** yes (C++ reference build, standalone reproducer under gdb).
 - **Severity:** crash/UB.
-- **Rust port:** `heal::stitch::p1::api_stitch_face` returns `Unported` (`SmMerge::SmMerge`, then `MergeAddedFace`, unit `boolean.merge_p2`; UB-167); the difftest FFI refuses `SmApiStitch` with a B-rep and a face, so only its null-argument guards are compared.
+- **Rust port:** `heal::stitch::p1::api_stitch_face` builds the merge with `MergeState::with_breps(.., None, 0.0, 0.0, None)` (PR #229), which returns `InvalidInput` where upstream dereferences the null other B-rep (after the primary's `GetMinEdgeBBoxSize`); the difftest FFIs refuse `SmApiStitch` with a B-rep and a face (`heal.stitch_p1`) and a computed tolerance without other B-rep (`boolean.merge_p2`).
 
 #### UB-176. Two-list `SmStitch::StitchVertexPairs` glues a vertex twice
 - **Location:** `source/SMLib/src/SmStitch.cpp:3242`-`3749` (the two-list `StitchVertexPairs`): each glue deletes `sUsingVerts2[...]` and nulls only its own slot.
 - **What happens:** A vertex repeated in `rVertexList2`, or present in both lists, is glued (and deleted) once per occurrence, so a later `GlueVertices` gets an already-deleted vertex (double free / use after free). The sorting loops also index `sSortedIndex1` / `sSortedIndex2` with the unfiltered counts, reading past them when a list holds `NULL` entries.
-- **Trigger:** caller-built lists with a repeated vertex, a vertex in both lists, or a `NULL` entry.
-- **How found:** source review while porting `heal.stitch_p1` (PR #196); the difftest FFI refuses repeats, shared vertices and `NULL`s.
-- **Confirmed:** no (source inspection only; the shim never runs it).
+- **Trigger:** caller-built lists with a repeated vertex, a vertex in both lists, or a `NULL` entry. `SmMerge::MergeAddedTopology` (`source/SMLib/src/SmMerge.cpp:5735`) reaches it with a vertex repeated in its caller's `pMergeVerts`, which it copies into `rVertexList2` unchecked: e.g. the ASCII `plane_square.smb` with vertices `[0, 0]`, no faces or edges, tolerance 10 (stitch tolerance 40).
+- **How found:** source review while porting `heal.stitch_p1` (PR #196); the difftest FFI refuses repeats, shared vertices and `NULL`s. The `MergeAddedTopology` route: an adversarial `boolean.merge_p2` fixture run with that unit's duplicate guard relaxed (PR #229).
+- **Confirmed:** yes (C++ reference build, through `MergeAddedTopology`: segfault, exit 139; the same request without the repeated vertex succeeds).
 - **Severity:** crash/UB.
-- **Rust port:** `heal::stitch::p1::Stitch::stitch_vertex_pairs` returns `InvalidInput` where the sorted index arrays would be read past; repeated vertices are a caller error the FFI refuses.
+- **Rust port:** `heal::stitch::p1::Stitch::stitch_vertex_pairs` returns `InvalidInput` where the sorted index arrays would be read past; repeated vertices are a caller error the FFI refuses. `boolean.merge_p2`'s FFI refuses any entity listed twice in a `MergeAddedTopology` list.
 
 #### UB-177. `SmStitch::DoSimpleFaceStitch` glues vertices that are already freed [PSIRT]
 - **Location:** `source/SMLib/src/SmStitch.cpp:680`-`681` (`sKVertices.Add` / `sDVertices.Add` across all face pairs), `:785` (`pBrepToStitch->RemoveFaces(cpFacesToDelete)`), then the glue loop at `:840`-`916` (`pV1->IsLaminaVertex()`, `SelectTopologyToKeep`, `GlueVertices` / `SqueezeEdge`).
@@ -3050,6 +3104,15 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **Confirmed:** yes (C++ reference run, reproduced alone by the fuzz harness).
 - **Severity:** hang.
 - **Rust port:** `heal::stitch::p1::api_stitch` defers at `SmBrep::StitchAndOrient` (`topology.brep_p5`); the difftest FFI bounds sheet values at 1e150 for the full-stitch API entry points.
+
+#### HANG-37. B-spline surface extension does not return for a control point of magnitude 1e157 or more
+- **Location:** `source/SMLib/src/SmBSplineSurfaceNLib.cpp:4583` (`SmBSplineSurface::CreateExtendedSurface`), reached from `SmOffsetExecutive::GetCreateExtendedSurface` (`source/SMLib/src/SmOffsetExecutive.cpp:2148`) with `SM_SP_BOTH`, five times the (nonnegative) offset magnitude and `SM_CT_G1R`.
+- **What happens:** With one control point coordinate at `1e157` or beyond, the extension call gives no result within 25 s; the stuck loop was not isolated (HANG-16 and HANG-17 describe the same routine's doubling loop and its exponential split; a coordinate of that size overflows the squared distances the extension-by-distance code compares).
+- **Trigger:** `--fuzz 2000` of `offset.offset_executive_p1` (case `fuzz00331`): a 3x3 degree-2 rational surface with one control point at `x = -1e300`, extension distance `-0.0`, approximation tolerance `4.5e-4`. The sign of the zero distance does not matter.
+- **How found:** PR #282's fuzz gate on the tree merged with main; the case timed out alone as well. Timing with that coordinate replaced, each axis in turn (pod sc-builder-0, release build): `1e154`, `1e155`, `1e156` return in 25-45 ms on x, y and z; `1e157` and `1e158` give no result within 25 s on every axis; `1e160`, `1e180`, `1e200`, `1e250`, `1e300` likewise on x.
+- **Confirmed:** yes (no result within 25 s, reproduced on 15 inputs across three axes; infinite execution not proven).
+- **Severity:** hang on out-of-range geometry; not a parity blocker (no fixture or generated case reaches it).
+- **Rust port:** the `offset.offset_executive_p1` FFI refuses control point coordinates (and coordinate/weight) above `MAX_COORDINATE = 1e154` in its `points()` guard, 1000x below the first slow value; the difftest runner's Rust side runs the same check, and the input is kept as a regression in `crates/difftest/tests/fuzz_regressions/`.
 
 ### Numerical integration
 
@@ -3167,3 +3230,50 @@ meantime, whoever merges renumbers the new entry and every reference to it (here
 - **How found:** source comparison following the overseer's independent diagnostic of `upstream_piecewise_boxes_2` and `_3`, on two 10×10×10 boxes offset by 5 in X. This author did not debug or replay the crashing inputs.
 - **Confirmed:** the separate diagnostic on `sc-builder-4` at `8df5981c` observed SIGSEGV and the original other B-rep's destruction during the first `ManifoldBoolean(SM_BO_PARTIAL_MERGE)` call. The next surface used that freed B-rep. This entry records the source-level lifetime defect; the provided diagnostic is archived in the swarm status directory.
 - **Guard:** before native construction, the FFI and shim refuse family 4 when the other operand is a box (six surfaces), an options pointer is present, imprinting (`mask & 2`) is on, and keep-other (`mask & 16`) is off. A shell-vertex other operand has no surfaces and never enters the per-surface loop (`SmMerge.cpp:394-407,441,772-778`), so it stays accepted, including when the primary is a box. All other families, non-imprinting options, null options, and imprinting with keep-other remain accepted. The two original fixtures assert this specific refusal without executing C++; `mask | 16` variants keep the imprinting branch exercised. No kernel result is fabricated and no Rust dependency deferral is used to label the refusal.
+
+#### UB-185. Fillet executive initialized flag is indeterminate before parameter setup
+- **Unit:** `blend.fillet_executive_p3` (constructor owned by executive p1).
+- **Location:** `source/SMLib/src/SmFilletExecutive.cpp:487-516,1574`.
+- **Trigger:** Construct `SmFilletExecutive` and call `DoFillet` before parameter
+  setup. Its constructor never initializes `m_bIsInitialized`, but `DoFillet`
+  immediately reads that member for its precondition check.
+- **How found:** Source inspection while porting the three executive methods.
+- **Confirmed:** no; no uninitialized native read was executed.
+- **Guard:** The native fixture's derived executive explicitly writes
+  `m_bIsInitialized` for every case before invoking an operation. Rust requires
+  callers to supply an initialized `bool` in the executive state.
+
+#### UB-206. `SmFilletExecutive::SetFilletParameters` dereferences a null `pBrep` and a null `pOptVarRadLaws`
+- **Location:** `source/SMLib/src/SmFilletExecutive.cpp:917` (`pBrep->GetContext()`) and `:998` (`pOptVarRadLaws->GetSize()`), the edge-pointer overload at `:865`.
+- **What happens:** `pBrep` may be null (`:884` only skips the target assignment), but once the edge list is non-empty and the list sizes pass, `:917` reads its context. `pOptVarRadLaws` is optional (`NULL` default), yet the first variable-radius edge reads its size.
+- **Trigger:** a null B-rep with a non-empty edge list whose type and value lists have one entry or one per edge; or a variable-radius type with a null law list (with a valid cross-section type, so the edge loop is reached).
+- **How found:** read during porting (`blend.fillet_executive_p2`, PR #267).
+- **Confirmed:** no. The shim refuses exactly these inputs, following upstream's order of early returns.
+- **Severity:** crash/UB (null dereference).
+- **Rust port:** `SM_ERR_NULL_POINTER` at the same points; the difftest compares both as guard errors.
+
+#### UB-207. RETIRED 2026-10-20 (was: the elliptical `SmBSplineFilletLaw` keeps a null law curve after a failed interpolation)
+- **Reason:** no triggering input exists. The pre-review of PR #267 probed zero span with equal radii, zero radii, span pi and span 1000, among others, and both sides built the full degree-2 curve every time; the interpolation parameters are the distinct `i / 100`. The port still returns an interpolation error where upstream would keep a null curve.
+
+#### HANG-36. RETIRED 2026-10-20 (was: `CollectTangentEdgeSequence` never returns on a tangent cycle without its first solver)
+- **Reason:** the trigger can't occur. The four `GetTangentFilletSolver` overrides (`SmFilletCorner.cpp:4448`, `:4573`, `:5141`, `:6869`) pair a corner's two solvers symmetrically, or return the solver itself for a closed edge, so every walk ends at NULL or back at `pFS`. A foreign corner makes `GetOtherFilletCorner` (`SmFilletSolver.cpp:235`) return NULL, but the walk only ever passes a corner the solver owns, so that NULL is not reached either. The port keeps its walk bound as a defence against adapter input.
+
+#### WR-208. `SmFilletExecutive` leaks the edge-use arrays `LoadFilletSolver` puts in `m_vVertexCornerMap` for vertices that get no corner
+- **Location:** `source/SMLib/src/SmFilletExecutive.cpp:1803-1808` (`LoadFilletSolver`: `new SmTArray<SmEdgeuse*>` per newly filleted vertex, stored in `m_vVertexCornerMap`); `:1844-1870` (`CreateFilletCorners` hands the array to `SmFilletCorner::Create` and replaces the map entry with the corner, which deletes it in `~SmFilletCorner`); the destructor (`~SmFilletExecutive`) never frees map values.
+- **What happens:** an array leaks for every filleted vertex whose corner is never created: the executive is destroyed before `CreateFilletCorners`, or `SmFilletCorner::Create` returns `NULL` for the vertex (`continue` at `:1863`).
+- **Trigger:** `SetFilletParameters` on edges of a box, then destroying the executive without `CreateFilletCorners` (48 + 128 bytes per filleted vertex).
+- **How found:** valgrind over the `blend.fillet_executive_p2` difftest cases (PR #267).
+- **Confirmed:** yes (valgrind: definitely lost blocks allocated in `SmFilletExecutive::LoadFilletSolver`, no invalid reads or writes).
+- **Severity:** memory leak; results unaffected.
+- **Related:** UB-209 (the same arrays, read as corners by `CollectTangentEdgeSequence`).
+- **Rust port:** no leak (the executive owns its records).
+
+#### UB-209. `CollectTangentEdgeSequence` calls `GetTangentFilletSolver` on the raw edge-use array of a vertex without a corner
+- **Location:** `source/SMLib/src/SmFilletExecutive.cpp:1803-1808` (`LoadFilletSolver` stores a `SmTArray<SmEdgeuse*>` for each filleted vertex in `m_vVertexCornerMap`); `:1844-1863` (`CreateFilletCorners` replaces it with the corner only when `SmFilletCorner::Create` succeeds, and otherwise `continue`s and still returns success); `:1605` (`GetFilletCornerOfVertex` C-casts the map value to `SmFilletCorner*`, reached through `SmFilletSolver::GetFilletCorner`, `SmFilletSolver.cpp:221-226`); `:4620-4622` (`CollectTangentEdgeSequence`: `NER( pCorner0 )` passes, then `pCorner0->GetTangentFilletSolver( pFS )`; the same at `:4642`, `:4660`, `:4681`).
+- **What happens:** for a vertex whose corner `Create` does not implement ("Corner Case Not Implemented", `SmFilletCorner.cpp:1304`, `:1317`, `:1375`), the map entry stays the edge-use array. The tangent walk takes it for a corner and makes a virtual call on an object of the wrong type.
+- **Trigger:** through the public API: `DoFillet` runs `CreateFilletCorners`, then `CreateFilletBrep` (`:1938`) calls `ProcessSmoothEdgeSequences`, then `CollectTangentEdgeSequence`, on an edge set where one filleted vertex has no implemented corner (e.g. two filleted edges at an apex of five or more edges) and at least two solvers remain.
+- **How found:** pre-review of PR #267 (`blend.fillet_executive_p2`), by source reading.
+- **Confirmed:** no (no native reproduction built; the shim's executive ops never fillet such a vertex).
+- **Severity:** crash/UB (virtual call through a mistyped pointer).
+- **Related:** WR-208 (the same `m_vVertexCornerMap` arrays leak for vertices without a corner).
+- **Rust port:** `ExecutiveAccess::solver_corner` yields `None` for a vertex without a corner, so the walk returns `SM_ERR_NULL_POINTER` (upstream's `NER`) instead.

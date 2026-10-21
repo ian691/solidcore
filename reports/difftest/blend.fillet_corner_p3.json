@@ -10846,7 +10846,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -10950,7 +10950,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -12306,7 +12306,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -13142,7 +13142,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -14828,7 +14828,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -15120,7 +15120,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -15618,7 +15618,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -15630,7 +15630,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -16451,7 +16451,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -16844,7 +16844,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,
@@ -17587,7 +17587,7 @@
     },
     {
       "deferred": {
-        "symbol": "SmCone (no SurfaceKind)",
+        "symbol": "SurfaceKind::Cone (SmCone dispatch)",
         "unit": "surface.surface_p2"
       },
       "max_rel_err": 0.0,

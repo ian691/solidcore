@@ -74,8 +74,7 @@
 //!   (UB-120) cannot be passed.
 //! - **`CheckLoop`** takes the surface separately, as upstream; `CheckFace` passes a
 //!   copy of the face's surface (the edge use UV extremes need the B-rep mutably).
-//! - **Unported callees** return [`SolidError::Unported`]: `SmBrep::SetTolerance`
-//!   (`topology.brep_p2`), `SmBrep::MakeFaceWithCurves` (`topology.brep_p7`),
+//! - **Unported callees** return [`SolidError::Unported`]: `SmBrep::MakeFaceWithCurves` (`topology.brep_p7`),
 //!   `SmBrep::MakeFacesWithCurves` (`topology.brep_p8`),
 //!   `SmFace::FlipFaceOrientation` and `SmFace::SplitAtSeam` (`topology.face_p1`),
 //!   `SmFace::GetEdges` and `SmFace::HasSeamProblem` (`topology.face_p4`).
@@ -238,13 +237,10 @@ fn report(
 
 // ---- unported callees -------------------------------------------------------------------
 
-/// `SmBrep::SetTolerance` (unit `topology.brep_p2`).
-fn brep_set_tolerance(_b: &mut Brep, _tol: f64) -> Result<()> {
-    // UNPORTED(topology.brep_p2): SmBrep::SetTolerance
-    Err(SolidError::unported(
-        "SmBrep::SetTolerance",
-        "topology.brep_p2",
-    ))
+/// `SmBrep::SetTolerance(d3DTolerance)` (the double becomes an `SmZoneTol3d`; default
+/// arguments).
+fn brep_set_tolerance(k: &Kernel, b: &mut Brep, tol: f64) -> Result<()> {
+    crate::topology::brep::p2::set_tolerance(k, b, tol::zone_tol3d(k, tol), true, true)
 }
 
 /// `SmBrep::MakeFaceWithCurves(region, loops, 3d curves, NULL, ...)` (unit
@@ -326,9 +322,8 @@ fn face_flip_face_orientation(b: &mut Brep, f: FaceId) -> Result<()> {
 }
 
 /// `SmFace::GetEdges` (unit `topology.face_p4`).
-fn face_edges(_b: &Brep, _f: FaceId) -> Result<Vec<EdgeId>> {
-    // UNPORTED(topology.face_p4): SmFace::GetEdges
-    Err(SolidError::unported("SmFace::GetEdges", "topology.face_p4"))
+fn face_edges(b: &Brep, f: FaceId) -> Result<Vec<EdgeId>> {
+    crate::topology::face::p4::edges(b, f, None, false, None)
 }
 
 /// The classification object of the seam classifications `SplitAtSeams` passes on: the
@@ -490,7 +485,7 @@ pub fn trim_surface_with_model_space_curves(
     let _ = first_is_outer; // SM_ASSERT only
 
     // set Brep tolerance
-    brep_set_tolerance(b, tol_3d)?;
+    brep_set_tolerance(k, b, tol_3d)?;
 
     // remember if Surface is G1 continuous
     let g1_surface = surface_continuity_check(k, &input.surface)?;
@@ -581,8 +576,7 @@ pub fn face_uv_curves_present(b: &Brep, f: FaceId) -> Result<bool> {
 ///
 /// # Errors
 ///
-/// Those of [`crate::topology::face::p3::create_uv_trim_curves`] ([`SolidError::Unported`]
-/// at `SmFace::GetUpwardLoopuses`, `topology.face_p4`).
+/// Those of [`crate::topology::face::p3::create_uv_trim_curves`].
 pub fn create_uv_trim_curves(k: &Kernel, b: &mut Brep, f: FaceId) -> Result<()> {
     face_create_uv_trim_curves(k, b, f)
 }
@@ -592,8 +586,7 @@ pub fn create_uv_trim_curves(k: &Kernel, b: &mut Brep, f: FaceId) -> Result<()> 
 ///
 /// # Errors
 ///
-/// [`SolidError::Unported`] (`SmFace::GetEdges`, `topology.face_p4`); those of
-/// [`eu1::set_uv_trim_curve`].
+/// Those of [`eu1::set_uv_trim_curve`] and `SmFace::GetEdges` (`topology::face::p4`).
 pub fn clear_uv_trim_curves(b: &mut Brep, f: FaceId) -> Result<()> {
     for e in face_edges(b, f)? {
         for eu in crate::topology::edge::edgeuses(b, e, None, None)? {
