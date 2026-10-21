@@ -2251,15 +2251,16 @@ impl UnitDiff for Runner {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn inexact_import_defers_but_exact_faces_still_compare() {
-        let ctx = CaseContext { root: crate::case::repo_root(), seeds: 0 };
+        let ctx = CaseContext {
+            root: crate::case::repo_root(),
+            seeds: 0,
+        };
         let cases = ctx.fixture_cases(Runner.id()).unwrap();
         for (name, deferred) in [
             ("points_file_cone.smb_0", true),
@@ -2273,7 +2274,9 @@ mod tests {
                 assert_eq!(cpp.error.as_deref(), Some("inexact_geometry"));
                 let why = rust.deferred.unwrap();
                 assert_eq!(why.unit, "topology.face_p2");
-                assert!(why.symbol.contains("difftest: exact analytic geometry import"));
+                assert!(why
+                    .symbol
+                    .contains("difftest: exact analytic geometry import"));
                 assert!(rust.error.is_none());
             } else {
                 assert!(rust.deferred.is_none());

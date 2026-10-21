@@ -883,7 +883,7 @@ pub fn loop_edgeuses(b: &Brep, l: LoopId) -> Result<Vec<EdgeuseId>> {
 
 /// The identity a topology entity is notified under by [`face_notify_edit`]: its type
 /// code and arena index (the B-rep keeps no attributes for it to select).
-fn notify_ref(e: EntityRef) -> ObjectRef {
+pub(crate) fn notify_ref(e: EntityRef) -> ObjectRef {
     let (type_code, kind, index) = match e {
         EntityRef::Brep(x) => (16011, 0u64, x.index()),
         EntityRef::Region(x) => (16012, 1, x.index()),
@@ -901,6 +901,31 @@ fn notify_ref(e: EntityRef) -> ObjectRef {
         type_code,
         key: ObjectKey(1 + (kind << 32) + u64::from(index)),
     }
+}
+
+/// The entity [`notify_ref`] gives the key `key`, if any (its inverse on keys). A
+/// caller decoding notification keys (the heal path's topology tracker) relies on every
+/// event of the edit being keyed by [`notify_ref`], as
+/// [`ArenaNotifyState`](crate::topology::brep::p2::ArenaNotifyState) does; a change of
+/// that scheme changes this decoder with it.
+pub(crate) fn entity_of_notify_key(key: ObjectKey) -> Option<EntityRef> {
+    let raw = key.0.checked_sub(1)?;
+    let kind = raw >> 32;
+    let index = u32::try_from(raw & u64::from(u32::MAX)).ok()?;
+    Some(match kind {
+        0 => EntityRef::Brep(crate::topology::BrepId::from_index(index)),
+        1 => EntityRef::Region(crate::topology::RegionId::from_index(index)),
+        2 => EntityRef::Shell(ShellId::from_index(index)),
+        3 => EntityRef::Faceuse(FaceuseId::from_index(index)),
+        4 => EntityRef::Face(FaceId::from_index(index)),
+        5 => EntityRef::Loopuse(LoopuseId::from_index(index)),
+        6 => EntityRef::Loop(LoopId::from_index(index)),
+        7 => EntityRef::Edgeuse(EdgeuseId::from_index(index)),
+        8 => EntityRef::Edge(EdgeId::from_index(index)),
+        9 => EntityRef::Vertexuse(VertexuseId::from_index(index)),
+        10 => EntityRef::Vertex(VertexId::from_index(index)),
+        _ => return None,
+    })
 }
 
 /// `SmFace::Notify(SM_NO_PRE_EDIT / SM_NO_POST_EDIT, pFace, SM_NO_GET_BREP(pFace) (0), NULL)`: the
@@ -1604,13 +1629,11 @@ mod tests {
         assert_eq!(orientation(&b, lu(0)).unwrap(), OrientType::Opposite);
         set_loop(&mut b, lu(0), None).unwrap();
         assert_eq!(loop_(&b, lu(0)).unwrap(), None);
-        // flipping a loop on a face needs SmFace::GetUpwardEdgeuses (post-edit notification)
+        // flipping a loop on a face runs its post-edit notification through
+        // SmFace::GetUpwardEdgeuses (topology.face_p4)
         let mut b = square(0.0);
-        assert!(flip_loop_orientation(&mut b, LoopId::from_index(0))
-            .unwrap_err()
-            .is_unported());
-        // without the face, the edge use lists swap loop uses (the failed flip above had
-        // already swapped them before its post-edit notification returned Unported)
+        flip_loop_orientation(&mut b, LoopId::from_index(0)).unwrap();
+        // without the face, the edge use lists swap loop uses
         let mut b = square(0.0);
         b.faceuse_mut(FaceuseId::from_index(0)).unwrap().face = None;
         flip_loop_orientation(&mut b, LoopId::from_index(0)).unwrap();

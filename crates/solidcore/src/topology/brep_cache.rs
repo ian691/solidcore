@@ -129,6 +129,18 @@ impl<O> BrepCache<O> {
     pub const fn surface_tree(&self) -> Option<&Tree<O>> {
         self.surfaces.as_ref()
     }
+    /// Mutable `GetVertexTree` (the tree a B-rep notification edits).
+    pub fn vertex_tree_mut(&mut self) -> Option<&mut Tree<O>> {
+        self.vertices.as_mut()
+    }
+    /// Mutable `GetCurveTree` (the tree a B-rep notification edits).
+    pub fn curve_tree_mut(&mut self) -> Option<&mut Tree<O>> {
+        self.curves.as_mut()
+    }
+    /// Mutable `GetSurfaceTree` (the tree a B-rep notification edits).
+    pub fn surface_tree_mut(&mut self) -> Option<&mut Tree<O>> {
+        self.surfaces.as_mut()
+    }
 }
 
 impl<O: Copy + PartialEq> BrepCache<O> {
@@ -451,9 +463,7 @@ fn face_bounding_box(k: &Kernel, b: &Brep, f: FaceId) -> Result<Extent3d> {
 }
 
 fn face_edges(b: &Brep, f: FaceId) -> Result<Vec<EdgeId>> {
-    b.face(f)?;
-    // UNPORTED(topology.face_p4): SmFace::GetEdges
-    Err(SolidError::unported("SmFace::GetEdges", "topology.face_p4"))
+    crate::topology::face::p4::edges(b, f, None, false, None)
 }
 
 /// Builds a new cache for `SmSAGObject::CacheMakeOrValidate`. The source geometry
