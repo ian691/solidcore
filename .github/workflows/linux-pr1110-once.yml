@@ -1,9 +1,9 @@
-# PREPARED ONLY: one approved push to the named dedicated fork branch starts one job.
+# PREPARED ONLY: candidate SHA must be bound after reviewed merge publication.
 # Publish only this workflow plus the two scripts in validation/linux/.
-name: Supplemental Linux PR 1109
+name: Supplemental Linux PR 1110
 on:
   push:
-    branches: [validation/linux-pr1109-20261026]
+    branches: [validation/linux-pr1110-20261026]
 permissions:
   contents: read
   actions: read
@@ -21,7 +21,7 @@ jobs:
       UPSTREAM_REPO: https://github.com/NVIDIA-Omniverse/usd-brep
       UPSTREAM_COMMIT: c9c5979f04cea8c38213004d4f04df0dcfb40d05
       SOLIDCORE_CPP_DIR: ${{ github.workspace }}/source/.cpp
-      CANDIDATE: pr-1109
+      CANDIDATE: pr-1110
     steps:
       - name: Initialize durable run receipt
         env:
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: tangency-labs/solidcore
-          ref: 8a4de2ab8cb796d2310bb7fa97550bc28b25b062
+          ref: afcc9464b712d703380dd46de1ce507ed38986b3
           fetch-depth: 0
           path: source
       - name: Record exact published candidate identity
@@ -78,7 +78,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: supplemental-pr-1109-${{ github.run_id }}
+          name: supplemental-pr-1110-${{ github.run_id }}
           path: output
           if-no-files-found: error
           retention-days: 14
