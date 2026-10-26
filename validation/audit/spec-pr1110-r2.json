@@ -1,0 +1,28 @@
+{
+  "run": 40385700832,
+  "attempt": 1,
+  "control": "2f79122d26aed6f3b43e241182df757f265784bd",
+  "candidate": "f6755f3740c453dd5aed270bb59ba263888f602f",
+  "base": "a878ba4e4ff0f4ceec98393286c9582014697662",
+  "branch": "validation/linux-pr1110-r2-20261026",
+  "workflow": ".github/workflows/linux-pr1110-r2-once.yml",
+  "workflow_sha256": "e720f951ea5d88bb6c713010c0e66da3a7c02199a193777927687a1762b46c76",
+  "artifact": 12692281037,
+  "artifact_name": "supplemental-pr-1110-40385700832",
+  "digest": "sha256:c595902e2954b8da7b9f58b5f44f3d73b30030bfad11eaeeb5c0b82359c81647",
+  "baseline_run": 40383669779,
+  "baseline_artifact": 12680161219,
+  "baseline_digest": "sha256:9946c37e8afbac14172fca6d0512374626e6d3b806869ed274e003a07733e47b",
+  "verifier_sha256": "c7e8be87d65fe5a445809563f035cbb8457683642e327987c0d8279840c95122",
+  "helper_hashes": {
+    "fetch-trusted-baseline.py": "e6518f00ebdd855d9fb3f1d5ea7534860a93023af5eea92044bbd303b9aafe43",
+    "run-linux-checks.sh": "4c7e7971d0fcf05f737c3a7062cba99d72bb0a463dabce239d1fa94d2bdaaea5"
+  },
+  "required_tests_by_log": {
+    "workspace": [
+      "interval_knot_fix_is_opt_in_and_tightens_a_rational_arc_subdomain",
+      "degree_one_interval_keeps_interior_extremum_and_excludes_outside_discontinuities",
+      "interval_end_knots_are_covered_by_endpoints_and_full_domain_is_unchanged"
+    ]
+  }
+}
