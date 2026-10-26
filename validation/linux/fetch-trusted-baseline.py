@@ -10,7 +10,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-BASE = '002754f4ea652fb864527029a67ee9dcfeac01c6'
+BASE = '8f6a0ab316c99f3fbe640ec1e437420110c9d892'
 root = pathlib.Path.cwd()
 subprocess.run(['git', 'merge-base', '--is-ancestor', BASE, 'HEAD'], check=True)
 module_path = root / 'scripts/ci/difftest_baseline.py'
