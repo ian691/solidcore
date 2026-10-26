@@ -213,6 +213,8 @@ pub struct UpstreamFixes {
     pub topology_failed_evaluations_propagate: bool,
     /// `SetProps_Stage3` returns a failed `ClassifyLoops` status before reading its outputs, and a failed stage drops its in-progress marker so a retry reruns it (WR-268, WR-266, #521).
     pub heal_stage3_failures_propagate: bool,
+    /// `Curve::calculate_tight_bounding_box` includes only tangent-discontinuous knots strictly inside the requested interval (#1054).
+    pub curve_tight_box_interval_knots: bool,
 }
 
 /// Options for [`Kernel::new`].

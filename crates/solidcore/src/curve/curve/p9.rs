@@ -71,6 +71,11 @@
 //! - `SM_ASSERT`s and the `SM_DEBUG_CODE` blocks are not ported. `GlobalCurveSolve`
 //!   recurses once at most (the signed angle minimiser asks for projected
 //!   tangencies), so it needs no depth bound.
+//! - **Issue #1054.** By default tight boxes retain SMLib's inclusion of all
+//!   qualifying knots, including the final knot, outside the requested interval.
+//!   [`crate::kernel::UpstreamFixes::curve_tight_box_interval_knots`] opts into
+//!   including only tangent-discontinuous knots strictly inside the interval;
+//!   endpoints are already in the box.
 
 use crate::curve::curve::p2::{
     proj_signed_angle, CcGlobalSolver, CciGlobalSolver, Curve, CurveKind, CurvePropertyType,
@@ -1521,8 +1526,11 @@ impl Curve {
     }
 
     /// `CalculateTightBoundingBox`: the axis aligned box of the curve over `interval`
-    /// from its end points, (for B-splines) its tangent discontinuous knots and last
-    /// knot, and the points where its tangent is perpendicular to x, y and z. The
+    /// from its end points, (for B-splines) tangent-discontinuous knots and the last
+    /// knot, and the points where its tangent is perpendicular to x, y and z. By
+    /// default SMLib's behavior includes qualifying knots even outside `interval`;
+    /// [`crate::kernel::UpstreamFixes::curve_tight_box_interval_knots`] opts into
+    /// including only qualifying knots strictly inside it. The
     /// line override is [`crate::curve::line::Line::calculate_tight_bounding_box`].
     ///
     /// # Errors
@@ -1558,7 +1566,12 @@ impl Curve {
                 let low = continuities
                     .get(i)
                     .is_some_and(|&c| ord(c) <= ord(ContinuityType::C1));
-                if i == n - 1 || low {
+                let include_knot = if k.fixes.curve_tight_box_interval_knots {
+                    low && knot > interval.min() && knot < interval.max()
+                } else {
+                    i == n - 1 || low
+                };
+                if include_knot {
                     eval_keep(k, self, knot, &mut pt)?;
                     tight_box.add_point(pt);
                 }
