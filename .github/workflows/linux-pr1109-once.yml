@@ -1,0 +1,84 @@
+# PREPARED ONLY: one approved push to the named dedicated fork branch starts one job.
+# Publish only this workflow plus the two scripts in validation/linux/.
+name: Supplemental Linux PR 1109
+on:
+  push:
+    branches: [validation/linux-pr1109-20261026]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: supplemental-linux-validation
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      UPSTREAM_REPO: https://github.com/NVIDIA-Omniverse/usd-brep
+      UPSTREAM_COMMIT: c9c5979f04cea8c38213004d4f04df0dcfb40d05
+      SOLIDCORE_CPP_DIR: ${{ github.workspace }}/source/.cpp
+      CANDIDATE: pr-1109
+    steps:
+      - name: Initialize durable run receipt
+        env:
+          CONTROL_SHA: ${{ github.sha }}
+          CONTROL_REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          mkdir -p output
+          printf 'control_sha=%s\ncontrol_ref=%s\nrun_id=%s\nrun_attempt=%s\n' "$CONTROL_SHA" "$CONTROL_REF" "$RUN_ID" "$RUN_ATTEMPT" > output/control-receipt.txt
+      - uses: actions/checkout@v4
+        with:
+          path: control
+      - uses: actions/checkout@v4
+        with:
+          repository: tangency-labs/solidcore
+          ref: 8a4de2ab8cb796d2310bb7fa97550bc28b25b062
+          fetch-depth: 0
+          path: source
+      - name: Record exact published candidate identity
+        working-directory: source
+        shell: bash
+        run: |
+          mkdir -p ../output
+          git -C ../control rev-parse HEAD > ../output/control-checkout-head.txt
+          git rev-parse HEAD > ../output/head.txt
+          git status --short > ../output/status.txt
+          git diff --binary > ../output/candidate.patch
+          sha256sum ../output/candidate.patch > ../output/candidate-patch.sha256
+          uname -a > ../output/platform.txt
+          sha256sum ../control/validation/linux/*.py ../control/validation/linux/*.sh > ../output/validation-tools.sha256
+      - name: Prepare pinned permitted C++ reference
+        working-directory: source
+        shell: bash
+        run: |
+          exec > >(tee ../output/cpp-setup.log) 2>&1
+          git init upstream
+          git -C upstream remote add origin "$UPSTREAM_REPO"
+          git -C upstream sparse-checkout init --cone
+          git -C upstream sparse-checkout set source/SMLib source/SM_API tests/SM_API_test tests/prog_test TestFiles/pt_TestFiles
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_COMMIT"
+          git -C upstream checkout --detach "$UPSTREAM_COMMIT"
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          # Fail if no matching prebuilt; no unbounded source-build fallback.
+          nice -n 10 scripts/fetch-cpp.sh --no-build
+          sha256sum "$SOLIDCORE_CPP_DIR"/lib/*.a > ../output/cpp-libraries.sha256
+          rustc -Vv > ../output/rustc.txt
+      - name: Run complete Linux checks
+        working-directory: source
+        shell: bash
+        run: bash ../control/validation/linux/run-linux-checks.sh ../control/validation/linux ../output
+      - name: Retain evidence including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supplemental-pr-1109-${{ github.run_id }}
+          path: output
+          if-no-files-found: error
+          retention-days: 14
