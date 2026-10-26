@@ -1,0 +1,40 @@
+name: Supplemental artifact audit PR 1110
+on:
+  push:
+    branches: [validation/linux-pr1110-audit-20261026]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: supplemental-linux-artifact-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: control
+      - uses: actions/checkout@v4
+        with:
+          repository: tangency-labs/solidcore
+          ref: 8f6a0ab316c99f3fbe640ec1e437420110c9d892
+          fetch-depth: 0
+          path: trusted-base
+      - name: Export authenticated completed artifact evidence without builds
+        working-directory: trusted-base
+        shell: bash
+        run: |
+          export SPEC_JSON="$(cat ../control/validation/audit/spec-pr1110.json)"
+          python3 ../control/validation/audit/audit-exporter.py
+      - name: Retain audit result including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supplemental-pr1110-artifact-audit-${{ github.run_id }}
+          path: trusted-base/audit-output
+          if-no-files-found: warn
+          retention-days: 14
